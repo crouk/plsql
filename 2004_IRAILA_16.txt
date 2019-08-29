@@ -1,0 +1,125 @@
+
+2004_IRAILA_16
+
+****************************************************
+drop table xs_asignaciones cascade constraints;
+drop table xs_puestos cascade constraints;
+drop table xs_restaurantes cascade constraints;
+drop table xs_pedidos cascade constraints;
+drop table xs_nota_pedido cascade constraints;
+drop table xs_consumiciones cascade constraints;
+drop table xs_empleados cascade constraints;
+******************************************************
+1.ARIKETA
+-----------
+CREATE OR REPLACE FUNCTION IMP_BRUT( P_DNI XS_EMPLEADOS.DNI%TYPE, P_REST XS_RESTAURANTES.ID_RESTA%TYPE) RETURN NUMBER
+AS
+	CANT NUMBER(6);
+	PRECIO NUMBER(8,2);
+	KOP NUMBER(3);
+	ERROR EXCEPTION;
+BEGIN
+	SELECT COUNT(*) INTO KOP FROM XS_PEDIDOS WHERE DNI_EMPLEADO=P_DNI AND COD_RESTA=P_REST;
+	IF (KOP=0) THEN
+		RAISE ERROR;
+	ELSE	
+		SELECT SUM(NP.CANTIDAD) INTO CANT
+		FROM XS_PEDIDOS P, XS_NOTA_PEDIDO NP, XS_CONSUMICIONES C
+		WHERE P.COD_RESTA=P_REST
+		AND P.DNI_EMPLEADO=P_DNI
+		AND P.COD_PEDIDO=NP.COD_PEDIDO
+		AND NP.ID_CONSUM=C.ID_CONSUM
+		AND C.TIPO='Postre';
+				
+		SELECT PRECIO INTO PRECIO FROM XS_CONSUMICIONES WHERE TIPO='Postre';
+	END IF;
+		RETURN CANT*PRECIO;
+EXCEPTION
+	WHEN ERROR THEN
+		DBMS_OUTPUT.PUT_LINE('LAGILEAK EZ DU LAN EGIN  JATETXE HORRETAN');
+END;
+/
+******************************************
+COD-->10
+DNI -->85674456X
+******************************************
+2.ARIKETA
+-----------------
+CREATE OR REPLACE PROCEDURE L_MC
+AS
+	CURSOR C IS 
+		select distinct(r.poblacion),r.direccion,e.nombre ,p.descripcion ,p.coste_hora,a.plus_nocturnidad,a.plus_peligrosidad
+            	from xs_empleados e, xs_asignaciones a, xs_puestos p,xs_restaurantes r
+            	where e.dni=a.dni
+            	and a.cod_puesto=p.cod_puesto
+            	and r.id_resta=a.id_resta;
+
+	vrest xs_restaurantes.poblacion%type;
+	vdire xs_restaurantes.direccion%type;
+	LAN C%ROWTYPE;
+BEGIN
+OPEN C;
+vrest:='aa';
+vdire:='bb';
+FECH C INTO LAN;
+WHILE C%FOUND LOOP
+ if vdire<> LAN.poblacion then
+ vdire:=v.rpo;
+        dbms_output.put_line('**************************');
+ dbms_output.put_line('POBLACION '|| lan.poblacion);
+ end if;
+if vrest<> lan.direccion then
+ vaurrerest:=v.rdir;
+dbms_output.put_line('**************************');
+ dbms_output.put_line('Direccion '|| lan.direccion);
+ dbms_output.put_line(rpad('Nombre',15,' ')||rpad('Puesto',15,' ')||rpad('CosteHora',10,' ')||rpad('Nocturnidad',10,' ')||rpad('Peligrosidad',10,' '));
+ end if;
+     dbms_output.put_line(rpad(lan,nombre,15,' ')||rpad(lan.descripcion,15,' ')||rpad(lan.coste_hora,10,' ')||rpad(lan.plus_nocturnidad,10,' ')||rpad(lan.plus_peligrosidad,10,' '));
+     fetch c into lan;
+END LOOP;
+CLOSE C;
+END;
+/
+*************************************************************************************************************************************************************************
+3.ARIKETA
+----------
+CREATE OR REPLACE PROCEDURE ALTA_PUESTOS(POSTUA XS_PUESTOS.COD_PUESTO%TYPE, AZAL XS_PUESTOS.DESCRIPCION%TYPE, ORDUA XS_PUESTOS.COSTE_HORA%TYPE)
+AS
+	MENOS EXCEPTION;
+BEGIN
+	IF ORDUA>12 THEN
+		RAISE MENOS;
+	ELSE
+		INSERT INTO XS_PUESTOS VALUES(POSTUA,AZAL,ORDUA);
+	END IF;
+EXCEPTION
+	WHEN MENOS THEN
+		DBMS_OUTPUT.PUT_LINE('ORDUKO KOSTUA 12€ BAINO HANDIAGOA DEK TOTO!!');
+		ROLLBACK;
+	WHEN DUP_VAL_ON_INDEX THEN
+		DBMS_OUTPUT.PUT_LINE('ERREPIKATU EGITEN DA GAKOA');
+	WHEN OTHERS THEN
+		DBMS_OUTPUT.PUT_LINE('¡¡¡errorea!!!');
+END;
+/
+********************************************************************************************************************************************************
+********************************************************************************************************************************************************
+4.ARIKETA
+-----------
+CREATE OR REPLACE TRIGGER BI_NOTA_PEDIDO
+BEFORE INSERT
+ON XS_NOTA_PEDIDO
+FOR EACH ROW
+DECLARE
+	VPRECIO NUMBER (8,2);
+	T XS_CONSUMICIONES.TIPO%TYPE;
+	P XS_CONSUMICIONES.PRECIO%TYPE;
+
+BEGIN
+	SELECT TIPO INTO T  FROM XS_CONSUMICIONES WHERE  ID_CONSUM=:NEW.ID_CONSUM;
+	SELECT AVG(PRECIO) INTO VPRECIO FROM XS_COSUMICIONES WHERE TIPO=T;
+	SELECT PRECIO INTO P FROM XS_CONSUMICIONES WHERE ID_CONSUM=:NEW.ID_CONSUM;
+	IF (VPRECIO<P) AND (:NEW.CANTIDAD>3) THEN
+		:NEW.DESCUENTO:=1;
+	END IF;
+END;

@@ -1,0 +1,151 @@
+1.ARIKETA(PL-SQL)
+-----------------
+CREATE OR REPLACE FUNCTION BETETA(DATA DATE) RETURN NUMBER
+AS
+	KOP NUMBER(8);
+BEGIN
+	SELECT COUNT(*) INTO KOP
+	FROM XF_ACTUACIONES
+	WHERE FECHA<DATA
+	AND ENTRADAS_VENDIDAS=AFORO_MAXIMO;
+	
+	RETURN KOP;
+END;
+/
+CREATE OR REPLACE FUNCTION KALKULATU_SGAE(ARTISTA XF_ARTISTAS.ID_ARTISTA%TYPE) RETURN NUMBER
+AS
+	TOTALA NUMBER(8,2);
+	TARIFA XF_ARTISTAS.TARIFA_ACTUACION%TYPE;
+	REBAJA EXCEPTION;
+BEGIN
+	SELECT NVL(SUM(CANON_SGAE),0) INTO TOTALA
+	FROM XF_ARTISTAS_GRABACIONES AG,XF_GRABACIONES G,XF_CANCIONES C
+	WHERE AG.ID_ARTISTA=ARTISTA
+	AND AG.ID_GRABACION=G.ID_GRABACION
+	AND G.ID_GRABACION=C.ID_GRABACION;
+	
+	SELECT TARIFA_ACTUACION INTO TARIFA FROM XF_ARTISTAS WHERE ID_ARTISTA=ARTISTA;
+
+	IF (TOTALA<TARIFA*0.1) THEN
+		RAISE REBAJA;
+	END IF;
+	RETURN TOTALA;
+	
+EXCEPTION
+	WHEN REBAJA THEN
+		UPDATE XF_ARTISTAS SET TARIFA_ACTUACION=TARIFA_ACTUACION-(TARIFA_ACTUACION*0.05)
+		WHERE ID_ARTISTA=ARTISTA;
+	
+	RETURN TOTALA;
+END;
+/
+
+CREATE OR REPLACE FUNCTION EKONOMIA(AKTUAZIOA XF_ACTUACIONES.ID_ACTUACION%TYPE) RETURN NUMBER
+AS
+	GASTUA1 NUMBER(8,2);
+	GASTUA2 NUMBER(8,2);
+	ARTISTA XF_ARTISTAS.ID_ARTISTA%TYPE;
+	IRABAZIA NUMBER(8,2);
+BEGIN
+	SELECT NVL(TARIFA_ACTUACION,0) INTO GASTUA1
+	FROM XF_ACTUACIONES AC, XF_ARTISTAS AR
+	WHERE AC.ID_ARTISTA=AR.ID_ARTISTA
+	AND AC.ID_ACTUACION=AKTUAZIOA;
+	
+	SELECT ID_ARTISTA INTO ARTISTA FROM XF_ACTUACIONES WHERE ID_ACTUACION=AKTUAZIOA;
+
+	GASTUA2:=KALKULATU_SGAE(ARTISTA);	 
+
+	SELECT(ENTRADAS_VENDIDAS*PRECIO_ENTRADA) INTO IRABAZIA
+	FROM XF_ACTUACIONES
+	WHERE ID_ACTUACION=AKTUAZIOA;
+	
+	RETURN(IRABAZIA-(GASTUA1+GASTUA2));
+END;
+
+*********************************************************************************************************
+*********************************************************************************************************
+
+2.ARIKETA
+----------
+create or replace procedure atera_kontzertuak
+as
+	cursor c1 is
+		select distinct(poblacion) from xf_actuaciones
+		where fecha between add_months(sysdate,-12) and sysdate;
+	po xf_actuaciones.poblacion%type;
+	cursor c2 is
+		select distinct (nombre) from xf_artistas ar, xf_actuaciones ac
+		where ac.id_artista=ar.id_artista
+		and ac.fecha between add_monthS(sysdate,-12) and sysdate
+		and ac.poblacion=po;
+
+	tarifa number(8,2);
+	kanon number(8,2);
+	irabazia number(8,2);
+	emaitza number(8,2);
+	gastua number(8,2);
+
+	
+
+begin
+	for i in c1 loop
+		dbms_output.put_line('Poblacion: '||i.poblacion);
+		po:=i.poblacion;
+		dbms_output.put_line(rpad('Izena',20)||'*'||lpad('irabaziak',10)||'*'||lpad('gastuak',10)||'*'||lpad('emaitza',10));
+		dbms_output.put_line('-------------------------------------------------------------------');
+		for b in c2 loop
+			select nvl(tarifa_actuacion,0) into tarifa
+			from xf_artistas ar,xf_actuaciones ac
+			where ar.id_artista=ac.id_artista
+			and ac.poblacion=po
+			and ar.nombre=b.nombre
+			and ac.fecha between add_monthS(sysdate,-12) and sysdate;
+			
+			select nvl(sum(canon_sgae),0) into kanon
+			from xf_artistas ar, xf_actuaciones ac, xf_actuaciones_canciones acc, xf_canciones ca
+			where ar.nombre=b.nombre
+			and ar.id_artista=ac.id_artista
+			and ac.poblacion=po
+			and ac.id_actuacion=acc.id_actuacion
+			and acc.id_cancion=ca.id_cancion
+			and ac.fecha between add_monthS(sysdate,-12) and sysdate;
+
+			select nvl(precio_entrada*entradas_vendidas,0) into irabazia
+			from xf_actuaciones ac,xf_artistas ar
+			where ar.nombre=b.nombre
+			and ar.id_artista=ac.id_artista
+			and ac.poblacion=po
+			and ac.fecha between add_monthS(sysdate,-12) and sysdate;
+
+			gastua:= kanon+tarifa;
+			emaitza:= irabazia-(kanon+tarifa);
+			dbms_output.put_line(rpad(b.nombre,20)||'*'||lpad(irabazia,10)||'*'||lpad(gastua,10)||'*'||lpad(emaitza,10));
+		end loop;
+	end loop;
+end;
+		
+**************************************************************************************************************************
+**************************************************************************************************************************
+3.ARIKETA
+----------
+
+CREATE OR REPLACE TRIGGER AI_ACTUACIONES
+AFTER INSERT
+ON XF_ACTUACIONES
+FOR EACH ROW
+DECLARE
+	IDG XF_GRABACIONES.ID_GRABACION%TYPE;
+	VNOMBRE XF_ARTISTAS.NOMBRE%TYPE;
+	VTITULO VARCHAR2(20);
+BEGIN
+	SELECT MAX(ID_GRABACION)+1 INTO IDG FROM XF_GRABACIONES;
+	
+	SELECT  NOMBRE INTO VNOMBRE FROM XF_ARTISTAS  
+	WHERE ID_ARTISTA=:NEW.ID_ARTISTA;
+	
+	VTITULO:=VNOMBRE||' '||'DIRECTO'||' '||:NEW.POBLACION;
+
+	INSERT INTO XF_GRABACIONES VALUES ( IDG,VTITULO,'VHS',:NEW.FECHA);
+END;
+/
